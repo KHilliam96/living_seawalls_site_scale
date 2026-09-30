@@ -1,0 +1,306 @@
+---
+title: "living_seawalls_site_scale_map"
+author: "Kyle Hilliam"
+date: "2026-09-30"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Code developed using R version 4.5.1
+
+Remote code repository location: https://github.com/KHilliam96/living_seawalls_global_analysis 
+
+# Aim
+-  
+# To Do
+-   
+
+# Important Notes
+-   
+
+# Labelling System
+
+-   .df, .list, .dist etc at the end of an object signify what class it is
+-   iterations of an object where no significant change has occured will be noted numerically i.e., .df/.df2/.df3
+-   df with spatial information and sf or sp objects will contain the coordinate system in their name, e.g., buffer_WGS1984.sf once transformed. But will not in first instance (buffer.df)
+
+# Versioning
+- V8 contains adjust SD for groups with NA values and sensitivity
+
+# Setup
+
+```{r setup, include = FALSE}
+# https://bookdown.org/yihui/rmarkdown/r-code.html
+knitr::opts_chunk$set(echo = FALSE, message = FALSE,
+  warnings = FALSE, error = FALSE)
+
+```
+
+```{r packages, include = FALSE}
+# Clear the space
+rm(list = ls()) # clear memory
+
+# Load packages
+# Install and load pacman
+if (!requireNamespace("pacman", quietly = TRUE)) {
+  message("pacman is being installed and has been loaded.")
+  install.packages("pacman")
+  library(pacman)
+} else {
+  message("pacman is installed and has been loaded.")
+  library(pacman)
+}
+
+# Data Wrangling
+pacman::p_load(tidyverse)
+pacman::p_load(snakecase)
+
+# Spatial
+pacman::p_load(leaflet)
+pacman::p_load(leaflet.extras)
+pacman::p_load(htmlwidget)
+pacman::p_load(sf)
+pacman::p_load(htmltools)
+pacman::p_load(htmlwidgets)
+
+
+```
+
+```{r Set up versioning and outputs, include = FALSE}
+update_data <- TRUE
+
+# options(scipen = 999)
+write_outputs     <- TRUE
+project_directory <- "C:/Users/KyleHilliam/OneDrive - Sydney Institute of Marine Science/living_seawalls_repo/individual_papers/publications/meta_analysis_Kyle"
+version <- "_V8"
+
+geographic_data <- "C:/Users/KyleHilliam/OneDrive - Sydney Institute of Marine Science/living_seawalls_repo/project_data/geographic_data"
+```
+
+```{r File Locations, include = FALSE}
+setwd(project_directory)
+getwd()
+
+# Get the location of our input data (this folder was created manually when
+# saving the data)
+
+inputs <- file.path(project_directory, "1_raw_inputs")
+
+# All other folders can be created in the code (note, will only do this once)
+
+# Create a directory to store current work in progress and files created in R
+
+wip_r_directory <- file.path(project_directory, "2_wip_r")
+
+if (!"work_in_progress_R" %in% basename(list.dirs(project_directory))) { # Check folder has not already been created
+  
+  dir.create(wip_r_directory)
+  
+  print("creating directory to store wip files")
+  
+} else {
+  
+  print("found existing wip directory")
+  
+}
+
+# Create a directory to store current work in progress and files created in GIS
+
+wip_gis_directory <- file.path(project_directory, "3_wip_non_code")
+
+if (!"work_in_progress_GIS" %in% basename(list.dirs(project_directory))) { # Check folder has not already been created
+  
+  dir.create(wip_gis_directory)
+  
+  print("creating directory to store GIS wip files")
+  
+} else {
+  
+  print("found existing non-code wip directory")
+  
+}
+
+# Create a directory to store all finalised outputs
+
+processed_output_directory <- file.path(project_directory, "4_clean_outputs")
+
+if (!"processed_outputs" %in% basename(list.dirs(project_directory))) { # Check folder has not already been created
+  
+  dir.create(processed_output_directory)
+  
+  print("creating directory to store outputs")
+  
+} else {
+  
+  print("found existing outputs directory")
+  
+}
+
+# Create a directory to store all finalised figures
+
+figure_directory <- file.path(project_directory, "5_manuscript_figures")
+
+if (!"5_manuscript_figures" %in% basename(list.dirs(project_directory))) { # Check folder has not already been created
+  
+  dir.create(figure_directory)
+  
+  print("creating directory to store figures")
+  
+} else {
+  
+  print("found existing figure directory")
+  
+  
+}  
+
+# Create a directory to store all supplementary figures
+
+supporting_directory <- file.path(project_directory, "6_supporting_figures")
+
+if (!"6_supporting_figures" %in% basename(list.dirs(project_directory))) { # Check folder has not already been created
+  
+  dir.create(supporting_directory)
+  
+  print("creating directory to store figures")
+  
+} else {
+  
+  print("found existing supporting directory")
+  
+  
+}
+  
+```
+
+# Import data
+
+## Site Data
+
+```{r Copy site data across to inputs}
+if(update_data){
+      site_data_file <- list.files(geographic_data, 
+                                      pattern = "site_info_ls_v1", 
+                                      full.names = TRUE,
+                                      recursive = TRUE)
+      
+      site_data_file
+      
+      # Copy the files
+      file.copy(from = site_data_file,
+                to   = file.path(inputs, basename(site_data_file)),
+                overwrite = TRUE)
+      message("Site data copied to inputs directory")
+}
+
+```
+
+```{r Import Site Metadata}
+site_data.df <- read_csv(file.path(inputs, "site_info_ls_v1.csv"))
+```
+
+
+# Manipulate
+
+```{r Create SF object}
+site.sf <- site_data.df %>%
+                    filter(location %in% c("Balmain", "Blues Point", "clontarf", "cockatoo_island", "Condor", "fairlight", "Fan Pier", "east_fremantle", "keppel", "milsons_point", "plymouth", "rushcutters_bay", "sawmillers", "townsville"),
+                           !is.na(lat),
+                           !installation_type == "pilings"
+                           ) %>%
+                    dplyr::select(location, country, estuary, units, types, controls, site, site_type, lat, lon) %>%
+                     sf::st_as_sf(coords = c("lon", "lat"), crs = 4326, remove = FALSE)
+```
+
+```{r Add Labels}
+site.sf2 <- site.sf %>%
+                mutate(location = to_title_case(location),
+                       site = case_when(
+                         grepl("con1", site) ~ "Control Seawall 1", 
+                         grepl("con2", site) ~ "Control Seawall 2", 
+                         grepl("con3", site) ~ "Control Seawall 3", 
+                         grepl("con", site) ~ "Control Seawall 1", 
+                         grepl("rs1", site) ~ "Reference Site 1", 
+                         grepl("rs2", site) ~ "Reference Site 2", 
+                         grepl("full", site) ~ "Living Seawall 1", 
+                         grepl("par", site) ~ "Living Seawall 2", 
+                         grepl("mod1", site) ~ "Living Seawall 1", 
+                         grepl("mod2", site) ~ "Living Seawall 2", 
+                         grepl("mod3", site) ~ "Living Seawall 3", 
+                         grepl("mod", site) ~ "Living Seawall 1"),
+                       popup = case_when(
+                         site_type == "modified"  ~ paste0(location, ": ", site, " (", units, " panels), ", estuary, ", ", country),
+                         site_type == "control"   ~ paste0(location, ": ", site, ", ", estuary, ", ",  country),
+                         site_type == "reference" ~ paste0(location, ": ", site, ", ", estuary, ", ",  country)),
+                       label = paste0(location, ": ", site,", ",  country))
+```
+
+
+# Create Leaflet Plot
+
+```{r Create Leaflet object}
+# Create Palette for circle markers
+treat_pal <- colorFactor(palette = c(modified = "orange",
+                                      control = "steelblue",
+                                      reference = "forestgreen"),
+                          domain = site.sf2$site_type)
+
+# Add custom legend
+site_legend <- HTML('
+  <div style="background:white; padding:8px; border-radius:5px; font-size:12px; line-height:1.4;">
+    <b>Site Type</b><br>
+    <div><span style="display:inline-block; width:14px; height:14px; border-radius:50%; background:steelblue; border:1.5px solid black; margin-right:6px;"></span>Living Seawall</div>
+    <div><span style="display:inline-block; width:14px; height:14px; border-radius:50%; background:orange; border:1.5px solid black; margin-right:6px;"></span>Control Seawall</div>
+      <div><span style="display:inline-block; width:14px; height:14px; border-radius:50%; background:forestgreen; border:1.5px solid black; margin-right:6px;"></span><span style="font-style:normal;">Reference</span></div>
+    </div>
+')
+
+
+# Create leaflet object
+site_leaflet.plot <- leaflet(options = leafletOptions(maxZoom = 14)) %>%
+                        setView(lng = 15, lat = 5, zoom = 2) %>%
+                        addProviderTiles(providers$Esri.WorldGrayCanvas,
+                                         group = "Esri Gray") %>%
+                        addControl(html = "<div id='map-title' style='font-weight: bold;'>Interactive Site Map</div>", 
+                                   position = "topright") %>%
+                        addCircleMarkers(data = site.sf2,
+                                         color = "black",
+                                         weight = 0.5,
+                                         fillColor = ~ treat_pal(site_type),
+                                         radius = 12,
+                                         opacity = 1,
+                                         fillOpacity = 0.7,
+                                         label = ~ label,
+                                         popup = ~ popup,
+                                         clusterOptions = markerClusterOptions(maxClusterRadius = 1,        
+                                         disableClusteringAtZoom = 10)) %>%
+                        addControl(html = site_legend,
+                                    position = "bottomright") %>% # Add custom legend
+                        addControl(html = "<div id='map-title'>Author: Kyle Hilliam</div>", position = "bottomleft") %>%
+                        addScaleBar(position = "bottomleft",
+                                    options =  scaleBarOptions(metric = TRUE,
+                                        imperial = FALSE)) %>%
+                        addEasyButton(easyButton(icon = "fa-globe",
+                                                  title = "Reset View",
+                                                  onClick = JS("function(btn, map){ map.setView([5, 15], 2); }"))) %>%
+                        addMiniMap(tiles = providers$Esri.WorldGrayCanvas,  # match the default main map base layer
+                                    toggleDisplay = TRUE,
+                                    minimized = TRUE,
+                                    position = "topleft") # add inset map
+
+
+site_leaflet.plot
+
+```
+
+```{r Save the leaflet map}
+if(write_outputs){
+  
+  saveWidget(site_leaflet.plot, 
+             file = file.path(figure_directory, "site_scale_leaflet_v2.html"),
+             selfcontained = TRUE)
+  
+  message("Site Scale leaflet map saved to ", file.path(figure_directory, "site_scale_leaflet_v2.html"))
+}
+
+```
